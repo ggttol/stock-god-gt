@@ -183,26 +183,39 @@ def calc_ma(closes: List[float], periods: List[int] = [5, 10, 20, 60]) -> Dict[s
 
 
 def calc_macd(closes: List[float]) -> Dict[str, Any]:
+    """计算最新 MACD 信号 (金叉/死叉)"""
     if len(closes) < 26:
         return {"signal": "unknown", "dif": 0, "dea": 0, "description": "数据不足"}
-    # EMA
-    def ema(vals, period):
-        k = 2 / (period + 1)
-        result = vals[0]
-        for v in vals[1:]:
-            result = v * k + result * (1 - k)
-        return result
-    e12 = ema(closes[:12], 12)
-    e26 = ema(closes[:26], 26)
-    dif = e12 - e26
-    dea = ema([dif] * 10, 10)
-    hist = (dif - dea) * 2
-    sig = "golden_cross" if dif > dea else "dead_cross"
+    
+    # 完整计算 EMA12 和 EMA26
+    ema12, ema26 = [closes[0]], [closes[0]]
+    k12, k26 = 2/13, 2/27
+    for p in closes[1:]:
+        ema12.append(p * k12 + ema12[-1] * (1 - k12))
+        ema26.append(p * k26 + ema26[-1] * (1 - k26))
+    
+    dif_list = [e1 - e2 for e1, e2 in zip(ema12, ema26)]
+    dea_list = [dif_list[0]]
+    k9 = 2/10
+    for d in dif_list[1:]:
+        dea_list.append(d * k9 + dea_list[-1] * (1 - k9))
+        
+    curr_dif, curr_dea = dif_list[-1], dea_list[-1]
+    prev_dif, prev_dea = dif_list[-2], dea_list[-2]
+    
+    # 金叉判定: 上穿
+    if prev_dif <= prev_dea and curr_dif > curr_dea:
+        sig = "golden_cross"
+    elif prev_dif >= prev_dea and curr_dif < curr_dea:
+        sig = "dead_cross"
+    else:
+        sig = "golden_cross" if curr_dif > curr_dea else "dead_cross"
+        
     return {
         "signal": sig,
-        "dif": round(dif, 4),
-        "dea": round(dea, 4),
-        "histogram": round(hist, 4),
+        "dif": round(curr_dif, 4),
+        "dea": round(curr_dea, 4),
+        "histogram": round((curr_dif - curr_dea) * 2, 4),
         "description": "MACD金叉，短线强势" if sig == "golden_cross" else "MACD死叉，短线弱势"
     }
 
@@ -288,10 +301,10 @@ def stock_analysis(code_input: str) -> Dict[str, Any]:
     # RSI
     rsi = calc_rsi(closes)
 
-    # 量比（今日成交量/昨日成交量）
+    # 量比 (今日成交量 / 昨日成交量)
     vol_ratio = 1.0
-    if len(volumes) >= 2 and volumes[1] > 0:
-        vol_ratio = round(volumes[0] / volumes[1], 2)
+    if len(volumes) >= 2 and volumes[-2] > 0:
+        vol_ratio = round(volumes[-1] / volumes[-2], 2)
 
     price_up = closes[0] > closes[1] if len(closes) > 1 else (change_pct > 0)
     if price_up and vol_ratio > 1.2:

@@ -53,7 +53,14 @@ def get_hot_news(keyword: Optional[str] = None, limit: int = 20) -> Dict[str, An
 
     quotes = sina_quote(candidates)
     news_list = []
-    hot_sectors = []
+    sector_data = {
+        "AI科技": ["sz002230", "sh688012", "sh688041"],
+        "新能源": ["sz300750", "sh601012", "sz300274"],
+        "消费金融": ["sh600519", "sh600036", "sh601318"],
+        "能源电力": ["sh600028", "sh600900", "sh601166"]
+    }
+    
+    sector_sums = {k: [] for k in sector_data.keys()}
 
     for q in quotes:
         try:
@@ -67,24 +74,38 @@ def get_hot_news(keyword: Optional[str] = None, limit: int = 20) -> Dict[str, An
             change = round((price / prev - 1) * 100, 2) if prev > 0 else 0.0
             volume = int(fields[8]) if fields[8] else 0
 
+            # 归类板块
+            for s_name, s_codes in sector_data.items():
+                if code in s_codes:
+                    sector_sums[s_name].append(change)
+
             # 作为资讯条目
-            direction = "涨" if change > 0 else ("平" if change == 0 else "跌")
+            direction = "上涨" if change > 0 else ("持平" if change == 0 else "下跌")
             news_list.append({
-                "title": f"【{name}】现价{price:.2f}元，{direction}{abs(change)}%",
-                "time": datetime.date.today().strftime("%Y-%m-%d"),
+                "title": f"【{name}】现报{price:.2f}元，今日{direction}{abs(change)}%",
+                "time": datetime.datetime.now().strftime("%H:%M"),
                 "source": "新浪财经",
                 "category": "实时行情",
                 "related_stocks": [code.replace("sh", "").replace("sz", "")],
-                "summary": f"最新价{price:.2f}，涨跌幅{change}%，成交量{volume}股"
+                "summary": f"最新价{price:.2f}，涨跌幅{change}%，成交量{volume}股。市场活跃度{'高' if volume > 1000000 else '中'}。"
             })
         except Exception:
             continue
 
-    # 按涨跌幅排序
-    news_list.sort(key=lambda x: float(x["summary"].split("涨跌幅")[1].split("%")[0]) if "涨跌幅" in x["summary"] and "%" in x["summary"].split("涨跌幅")[1] else 0, reverse=True)
+    # 计算热点板块
+    hot_sectors = []
+    for s_name, changes in sector_sums.items():
+        if changes:
+            avg_change = round(sum(changes) / len(changes), 2)
+            hot_sectors.append({
+                "name": s_name,
+                "change": f"{'+' if avg_change > 0 else ''}{avg_change}%",
+                "status": "领涨" if avg_change > 1 else "活跃" if avg_change > 0 else "波段"
+            })
+    hot_sectors.sort(key=lambda x: float(x["change"].replace("%", "")), reverse=True)
 
-    # 按成交量排序得出热点
-    news_list.sort(key=lambda x: int(x["summary"].split("成交量")[1].replace("股","")) if "成交量" in x["summary"] else 0, reverse=True)
+    # 资讯排序
+    news_list.sort(key=lambda x: abs(float(x["summary"].split("涨跌幅")[1].split("%")[0])), reverse=True)
 
     # 过滤关键词
     if keyword:

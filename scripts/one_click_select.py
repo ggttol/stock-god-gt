@@ -90,13 +90,31 @@ def ema(vals: List[float], period: int) -> float:
 
 
 def calc_macd(closes: List[float]) -> str:
+    """计算最新 MACD 信号 (金叉/死叉)"""
     if len(closes) < 26:
         return "flat"
-    e12 = ema(closes[:12], 12)
-    e26 = ema(closes[:26], 26)
-    dif = e12 - e26
-    dea = ema([dif] * 10, 10)
-    return "golden" if dif > dea else "dead"
+    
+    # 完整计算 EMA12 和 EMA26
+    ema12, ema26 = [closes[0]], [closes[0]]
+    k12, k26 = 2/13, 2/27
+    for p in closes[1:]:
+        ema12.append(p * k12 + ema12[-1] * (1 - k12))
+        ema26.append(p * k26 + ema26[-1] * (1 - k26))
+    
+    dif = [e1 - e2 for e1, e2 in zip(ema12, ema26)]
+    dea = [dif[0]]
+    k9 = 2/10
+    for d in dif[1:]:
+        dea.append(d * k9 + dea[-1] * (1 - k9))
+        
+    curr_dif, curr_dea = dif[-1], dea[-1]
+    prev_dif, prev_dea = dif[-2], dea[-2]
+    
+    if prev_dif <= prev_dea and curr_dif > curr_dea:
+        return "golden" # 金叉
+    elif prev_dif >= prev_dea and curr_dif < curr_dea:
+        return "dead"   # 死叉
+    return "golden" if curr_dif > curr_dea else "dead"
 
 
 def calc_rsi(closes: List[float], period: int = 14) -> float:
@@ -140,15 +158,15 @@ def score_one(code: str) -> Optional[Dict]:
 
     # 获取历史K线
     hist = sina_hist(sina_code, days=60)
-    if not hist or len(hist) < 20:
+    if not hist or len(hist) < 5:
         print(f"[WARN] {code} 历史数据不足: {len(hist)}条", file=sys.stderr)
         return None
 
     closes = [h["close"] for h in hist if h["close"] > 0]
     volumes = [h["volume"] for h in hist if h["volume"] > 0]
 
-    if len(closes) < 20:
-        print(f"[WARN] {code} K线数据不足", file=sys.stderr)
+    if len(closes) < 5:
+        print(f"[WARN] {code} K线有效数据不足", file=sys.stderr)
         return None
 
     # 均线
@@ -162,8 +180,8 @@ def score_one(code: str) -> Optional[Dict]:
     # RSI
     rsi = calc_rsi(closes)
 
-    # 量比
-    vol_ratio = round(volumes[0] / volumes[1], 2) if len(volumes) >= 2 and volumes[1] > 0 else 1.0
+    # 量比 (今日成交量 / 昨日成交量)
+    vol_ratio = round(volumes[-1] / volumes[-2], 2) if len(volumes) >= 2 and volumes[-2] > 0 else 1.0
 
     # 资金估算
     avg_price = amount / volume if volume > 0 and amount > 0 else price

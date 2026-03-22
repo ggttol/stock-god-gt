@@ -51,7 +51,9 @@ def get_board_concept():
 
 def get_fund_flow(stock):
     """资金流向"""
-    df = stock_individual_fund_flow(stock=stock, market="sh")
+    # 自动识别市场
+    market = "sh" if stock.startswith(("6", "5")) else "sz"
+    df = ak.stock_individual_fund_flow(stock=stock, market=market)
     return df.to_dict(orient='records')
 
 
